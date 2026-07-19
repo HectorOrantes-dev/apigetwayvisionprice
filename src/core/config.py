@@ -43,8 +43,16 @@ class Settings(BaseSettings):
     extracciones_base_url: str = ""
     extracciones_gateway_key: str = ""
 
-    # Timeout único para las 5 llamadas salientes.
-    proxy_timeout_seconds: int = 20
+    # Timeout único para las 5 llamadas salientes. OJO: /auth/login llama
+    # sincrónicamente al microservicio de 2FA (que a su vez manda un email
+    # por Gmail SMTP) DENTRO del mismo request — ese sub-request interno ya
+    # tiene su propio timeout de 20s (TWO_FACTOR_TIMEOUT en la API
+    # principal). Si este valor fuera igual o menor, el gateway corta la
+    # conexión ANTES de que la API principal termine de esperar al 2FA,
+    # devolviendo un 502 que la app suele mostrar como "sin internet".
+    # Este valor SIEMPRE debe quedar por encima de cualquier timeout interno
+    # de la cadena, nunca igual.
+    proxy_timeout_seconds: int = 40
 
     # --- Control de concurrencia saliente (hacia los downstream) ---
     # Pool de conexiones HTTP reusadas (keep-alive) hacia TODOS los
