@@ -1,6 +1,7 @@
 """Adaptador del reverse proxy sobre httpx.
 
-Dos cosas para manejar bien muchas conexiones simultáneas:
+Tres cosas para manejar bien muchas conexiones simultáneas y un downstream
+saturado:
 
   1. UN SOLO httpx.AsyncClient reusado (no uno nuevo por request). httpx
      mantiene un pool de conexiones keep-alive por host — sin esto, cada
@@ -13,6 +14,14 @@ Dos cosas para manejar bien muchas conexiones simultáneas:
      que los tumbe. No es un semáforo (que haría esperar/encolar) a
      propósito: bajo un pico real, es mejor rechazar rápido y que el cliente
      reintente que acumular una cola larga que igual va a terminar en timeout.
+  3. Un circuit breaker POR DOWNSTREAM (ver circuit_breaker.py). Si un
+     downstream específico (ej. 2FA) empieza a fallar por timeout/conexión
+     de forma repetida, el circuito se abre: las siguientes requests a ESE
+     downstream fallan al instante con 503 (sin ni intentar la llamada,
+     sin esperar el timeout completo) durante un cooldown — protege al
+     downstream de que le sigan pegando mientras está saturado, y le ahorra
+     al cliente la espera larga de un timeout que casi seguro iba a fallar
+     igual.
 """
 import json
 import logging
@@ -26,6 +35,7 @@ from src.features.proxy.domain.entities import (
     RespuestaProxeada,
 )
 from src.features.proxy.domain.ports import ReverseProxyPort
+from src.features.proxy.infrastructure.circuit_breaker import CircuitBreaker
 
 _log = logging.getLogger("gateway.proxy")
 
@@ -51,6 +61,10 @@ class HttpxReverseProxy(ReverseProxyPort):
         )
         self._max_concurrencia = settings.proxy_max_concurrencia
         self._en_vuelo = 0
+        self._circuit = CircuitBreaker(
+            umbral_fallos=settings.circuit_breaker_umbral_fallos,
+            cooldown_seconds=settings.circuit_breaker_cooldown_seconds,
+        )
 
     async def cerrar(self) -> None:
         await self._client.aclose()
@@ -71,6 +85,25 @@ class HttpxReverseProxy(ReverseProxyPort):
         url = f"{destino.base_url.rstrip('/')}{path_downstream}"
         if request.query_string:
             url = f"{url}?{request.query_string}"
+
+        if not self._circuit.permitir(destino.nombre):
+            _log.warning(
+                "circuito abierto para %s, rechazando sin intentar %s %s",
+                destino.nombre, request.method, request.path,
+            )
+            body = json.dumps(
+                {
+                    "error": {
+                        "code": "service_unavailable",
+                        "message": f"El servicio '{destino.nombre}' está temporalmente no disponible, reintentá en unos segundos.",
+                    }
+                }
+            ).encode()
+            return RespuestaProxeada(
+                status_code=503,
+                headers={"content-type": "application/json"},
+                body=body,
+            )
 
         if self._en_vuelo >= self._max_concurrencia:
             _log.warning(
@@ -98,6 +131,7 @@ class HttpxReverseProxy(ReverseProxyPort):
                     request.method, url, headers=headers, content=request.body
                 )
             except httpx.HTTPError as exc:
+                self._circuit.registrar_fallo(destino.nombre)
                 _log.warning(
                     "downstream %s no disponible: %s (url=%s)", destino.nombre, exc, url
                 )
@@ -114,6 +148,11 @@ class HttpxReverseProxy(ReverseProxyPort):
                     headers={"content-type": "application/json"},
                     body=body,
                 )
+
+            # Cualquier respuesta HTTP real (incluso un 4xx/5xx de negocio)
+            # prueba que el downstream está vivo — solo los errores de RED
+            # cuentan para el circuito (ver except arriba).
+            self._circuit.registrar_exito(destino.nombre)
 
             resp_headers = {
                 k: v

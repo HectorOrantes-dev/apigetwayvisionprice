@@ -87,6 +87,19 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     jwt_algorithm: str = "HS256"
 
+    # --- Circuit breaker por downstream ---
+    # Si un downstream falla (timeout/conexión — NO errores de negocio como
+    # 401/404, esos prueban que está vivo) esta cantidad de veces seguidas,
+    # el circuito se ABRE: durante el cooldown, el gateway responde 503 DE
+    # INMEDIATO sin ni intentar la llamada, en vez de que cada request espere
+    # el timeout completo (PROXY_TIMEOUT_SECONDS) para fallar. Protege al
+    # downstream saturado de que le sigan pegando, y le da al cliente un
+    # error rápido en vez de una espera larga que la app suele confundir con
+    # "sin internet". Después del cooldown, deja pasar UNA request de prueba
+    # (medio-abierto): si funciona, cierra el circuito; si falla, lo reabre.
+    circuit_breaker_umbral_fallos: int = 5
+    circuit_breaker_cooldown_seconds: int = 30
+
     @property
     def cors_origins_list(self) -> list[str]:
         if not self.cors_origins or self.cors_origins == "*":

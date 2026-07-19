@@ -60,6 +60,33 @@ gateway a más de una réplica, cada una cuenta lo suyo (suficiente para
 frenar un cliente que se desboca; no es un límite exacto entre réplicas —
 para eso haría falta un backend compartido tipo Redis).
 
+## Qué pasa si un downstream se satura (circuit breaker)
+
+`CircuitBreaker` (`src/features/proxy/infrastructure/circuit_breaker.py`),
+uno por downstream (`main_api`, `pagos`, `2fa`, `proveedores`,
+`extracciones`):
+
+- **Cerrado** (normal): las requests pasan. Solo cuentan como fallo los
+  errores de RED (timeout, conexión rechazada) — un `401`/`404`/`422` del
+  downstream NO cuenta, eso prueba que está vivo.
+- Tras `CIRCUIT_BREAKER_UMBRAL_FALLOS` fallos de red **consecutivos**, se
+  **abre**: durante `CIRCUIT_BREAKER_COOLDOWN_SECONDS`, cualquier request a
+  ese downstream se rechaza con `503` al instante — sin ni intentar la
+  llamada, sin esperar `PROXY_TIMEOUT_SECONDS`. Protege al downstream
+  saturado de que le sigan pegando, y evita que cada usuario espere el
+  timeout completo para enterarse de que no sirve de nada reintentar ya.
+- Pasado el cooldown, deja pasar **una** request de prueba (medio-abierto);
+  las demás siguen rechazándose hasta que esa resuelva. Si funciona, cierra
+  el circuito; si falla, lo vuelve a abrir.
+
+Caso concreto que motivó esto: si el microservicio de 2FA se satura y tarda
+40s+ en responder, sin circuit breaker cada intento de login espera el
+timeout completo (hasta `PROXY_TIMEOUT_SECONDS`) antes de fallar, Y le sigue
+mandando tráfico a un servicio que ya está sufriendo. Con el circuito
+abierto, después de unos pocos fallos el resto de los logins fallan al
+instante con un mensaje claro, y 2FA deja de recibir tráfico nuevo durante
+el cooldown para poder recuperarse.
+
 ## Estado del rollout
 
 **Fase actual: el gateway existe y funciona, pero NINGÚN downstream lo exige
