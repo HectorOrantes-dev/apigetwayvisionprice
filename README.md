@@ -16,6 +16,25 @@ etc.). Ver `src/features/proxy/infrastructure/routing_table.py` para el
 mapeo exacto y por qué `/api/v1/pagos-ms` (no `/api/v1/pagos`) para no chocar
 con el webhook que ya existe en la API principal.
 
+## Cómo maneja muchas conexiones a la vez
+
+- **Un solo `httpx.AsyncClient` reusado** (`HttpxReverseProxy`, creado una
+  vez, no por request) con pool de conexiones keep-alive
+  (`PROXY_MAX_CONNECTIONS` / `PROXY_MAX_KEEPALIVE_CONNECTIONS`) — evita abrir
+  un socket/TLS nuevo por cada petición.
+- **Techo de requests en vuelo** (`PROXY_MAX_CONCURRENCIA`): por encima de
+  ese número, responde `503` de inmediato en vez de encolar sin fondo.
+- **Rate limit por IP** (`RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_SECONDS`,
+  ver `src/shared/rate_limit.py`): ventana deslizante en memoria, responde
+  `429` si un mismo cliente se pasa. Es el único punto de entrada del móvil
+  ahora, así que es el lugar correcto para esto en vez de repetirlo en cada
+  downstream (2FA, por ejemplo, no tenía nada).
+
+Ambos son en memoria — por instancia de proceso. Si Railway escala el
+gateway a más de una réplica, cada una cuenta lo suyo (suficiente para
+frenar un cliente que se desboca; no es un límite exacto entre réplicas —
+para eso haría falta un backend compartido tipo Redis).
+
 ## Estado del rollout
 
 **Fase actual: el gateway existe y funciona, pero NINGÚN downstream lo exige

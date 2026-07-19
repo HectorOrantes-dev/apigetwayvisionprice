@@ -17,7 +17,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.config import settings
+from src.features.proxy.infrastructure.dependencies import cerrar_proxy
 from src.features.proxy.infrastructure.router import router as proxy_router
+from src.shared.rate_limit import RateLimitMiddleware
 
 
 def create_app() -> FastAPI:
@@ -27,6 +29,10 @@ def create_app() -> FastAPI:
         description="Reverse proxy / API Gateway de VisionPrice.",
     )
 
+    # Rate limit por IP: primero, para frenar abuso antes de gastar una
+    # conexión saliente hacia cualquier downstream.
+    app.add_middleware(RateLimitMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -34,6 +40,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.on_event("shutdown")
+    async def _cerrar_pool_conexiones() -> None:
+        await cerrar_proxy()
 
     @app.get("/health", tags=["health"])
     async def health() -> dict:

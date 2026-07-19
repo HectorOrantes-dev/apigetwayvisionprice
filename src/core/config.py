@@ -46,6 +46,29 @@ class Settings(BaseSettings):
     # Timeout único para las 5 llamadas salientes.
     proxy_timeout_seconds: int = 20
 
+    # --- Control de concurrencia saliente (hacia los downstream) ---
+    # Pool de conexiones HTTP reusadas (keep-alive) hacia TODOS los
+    # downstream combinados — evita abrir un socket/TLS handshake nuevo por
+    # cada request, que es lo que pasaba antes (AsyncClient nuevo por
+    # petición). max_connections limita cuántas conexiones simultáneas puede
+    # tener este proceso abiertas en total; si un downstream se cae o se pone
+    # lento, esto evita que las peticiones se acumulen sin límite esperando.
+    proxy_max_connections: int = 100
+    proxy_max_keepalive_connections: int = 20
+    # Techo de requests EN VUELO al mismo tiempo dentro de este proceso. Por
+    # encima de esto, el gateway responde 503 en vez de seguir aceptando
+    # trabajo (protege tanto a este proceso como a los downstream de un pico).
+    proxy_max_concurrencia: int = 200
+
+    # --- Rate limiting por IP (ventana deslizante, en memoria) ---
+    # Este es el único punto de entrada del móvil ahora, así que es el lugar
+    # correcto para centralizar esto en vez de replicarlo en cada downstream.
+    # En memoria = por instancia; si Railway escala a >1 réplica, cada una
+    # cuenta la suya (suficiente para frenar abuso de un cliente, no perfecto
+    # entre réplicas — para eso haría falta Redis).
+    rate_limit_max_requests: int = 120
+    rate_limit_window_seconds: int = 60
+
     @property
     def cors_origins_list(self) -> list[str]:
         if not self.cors_origins or self.cors_origins == "*":

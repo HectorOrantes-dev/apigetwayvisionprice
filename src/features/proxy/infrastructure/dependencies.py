@@ -9,3 +9,8 @@ _proxy = HttpxReverseProxy()
 
 def get_reenviar_request() -> ReenviarRequest:
     return ReenviarRequest(routing=_routing, proxy=_proxy)
+
+
+async def cerrar_proxy() -> None:
+    """Cierra el pool de conexiones del proxy. Llamar en el shutdown de la app."""
+    await _proxy.cerrar()
