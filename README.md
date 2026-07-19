@@ -10,11 +10,36 @@ Reverse proxy / punto de entrada único para el móvil. Reenvía hacia:
 | `/api/v1/extracciones/*` | Extracciones / motor de IA | `X-Api-Key` (el que Extracciones YA exige) |
 | todo lo demás (`/api/v1/*`) | API principal | `X-Gateway-Key` |
 
-No reimplementa JWT ni RBAC — cada downstream sigue validando su propia
-autenticación exactamente como hoy (`get_current_user`, `require_roles`,
+No reemplaza la autenticación de cada downstream — cada uno sigue validando
+su propio JWT/RBAC exactamente como hoy (`get_current_user`, `require_roles`,
 etc.). Ver `src/features/proxy/infrastructure/routing_table.py` para el
 mapeo exacto y por qué `/api/v1/pagos-ms` (no `/api/v1/pagos`) para no chocar
 con el webhook que ya existe en la API principal.
+
+## Identidad y validación de JWT (capa EXTRA, no en vez de)
+
+El `Authorization: Bearer` del cliente se reenvía **intacto** a cada
+downstream — nunca se reemplaza ni se traduce a otro header. Cada downstream
+sigue siendo la autoridad final: valida el mismo JWT con su propio
+`get_current_user`, exactamente como si el gateway no existiera.
+
+Además de eso, `JwtGateMiddleware` (`src/shared/jwt_gate.py`) agrega un
+rechazo TEMPRANO: si el token falta, está mal formado, vencido o tiene firma
+inválida, corta con `401` **antes** de gastar una llamada de red al
+downstream. Usa el mismo `JWT_SECRET`/`JWT_ALGORITHM` que ya comparten la API
+principal y Pagos — no es un secreto nuevo.
+
+**Rutas exentas** (verificadas contra el código real, no adivinadas — ver
+`_EXENTOS_MAIN_API`/`_EXENTOS_PAGOS` en `jwt_gate.py`): login, register,
+password reset, Google auth, `/roles`, webhooks internos (Conekta/PayPal/ML/
+notificaciones, que usan `X-Api-Key` propio, no JWT de usuario). Los
+downstream que no usan JWT de usuario en absoluto (2FA, Proveedores,
+Extracciones — usan `X-Api-Key` o, en 2FA, nada todavía) quedan exentos por
+completo.
+
+Si `JWT_SECRET` no está configurado, esta capa es un no-op total — el
+gateway sigue funcionando igual que sin ella, solo pierde el rechazo
+temprano (el downstream sigue protegiendo igual).
 
 ## Cómo maneja muchas conexiones a la vez
 

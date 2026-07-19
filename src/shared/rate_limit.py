@@ -14,6 +14,7 @@ import time
 from collections import defaultdict, deque
 
 from src.core.config import settings
+from src.shared.net import client_ip
 
 _EXCLUIDOS = ("/health",)
 
@@ -31,7 +32,7 @@ class RateLimitMiddleware:
         if path in _EXCLUIDOS:
             return await self.app(scope, receive, send)
 
-        ip = _client_ip(scope)
+        ip = client_ip(scope)
         ahora = time.monotonic()
         limite = ahora - settings.rate_limit_window_seconds
         dq = self._buckets[ip]
@@ -43,16 +44,6 @@ class RateLimitMiddleware:
 
         dq.append(ahora)
         return await self.app(scope, receive, send)
-
-
-def _client_ip(scope) -> str:
-    # Railway pone al cliente real en X-Forwarded-For (primer hop de la
-    # cadena); si no viene, cae al IP de conexión directa.
-    for k, v in scope.get("headers", []):
-        if k == b"x-forwarded-for":
-            return v.decode().split(",")[0].strip()
-    client = scope.get("client")
-    return client[0] if client else "desconocido"
 
 
 async def _rechazar(send) -> None:

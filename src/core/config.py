@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     rate_limit_max_requests: int = 120
     rate_limit_window_seconds: int = 60
 
+    # --- Validación de JWT en el gateway (capa EXTRA, no reemplaza a la API) ---
+    # El MISMO secreto que ya comparten la API principal y Pagos para firmar/
+    # validar el JWT de usuario (no es un X-Gateway-Key, es literalmente
+    # JWT_SECRET de esos dos servicios). El gateway lo usa para rechazar
+    # tokens inválidos/vencidos ANTES de gastar una llamada al downstream —
+    # el downstream sigue validando el mismo JWT de nuevo, como siempre.
+    # Vacío = no-op (no bloquea nada) — poné el valor real para activarlo.
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+
     @property
     def cors_origins_list(self) -> list[str]:
         if not self.cors_origins or self.cors_origins == "*":
