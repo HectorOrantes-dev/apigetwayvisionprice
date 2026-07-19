@@ -1,4 +1,7 @@
 """Adaptador del reverse proxy sobre httpx."""
+import json
+import logging
+
 import httpx
 
 from src.core.config import settings
@@ -8,6 +11,8 @@ from src.features.proxy.domain.entities import (
     RespuestaProxeada,
 )
 from src.features.proxy.domain.ports import ReverseProxyPort
+
+_log = logging.getLogger("gateway.proxy")
 
 # Headers que NO se reenvían tal cual (hop-by-hop / los recalcula httpx solo).
 _HEADERS_EXCLUIDOS = {
@@ -38,9 +43,27 @@ class HttpxReverseProxy(ReverseProxyPort):
         if request.query_string:
             url = f"{url}?{request.query_string}"
 
-        async with httpx.AsyncClient(timeout=settings.proxy_timeout_seconds) as client:
-            resp = await client.request(
-                request.method, url, headers=headers, content=request.body
+        try:
+            async with httpx.AsyncClient(timeout=settings.proxy_timeout_seconds) as client:
+                resp = await client.request(
+                    request.method, url, headers=headers, content=request.body
+                )
+        except httpx.HTTPError as exc:
+            _log.warning(
+                "downstream %s no disponible: %s (url=%s)", destino.nombre, exc, url
+            )
+            body = json.dumps(
+                {
+                    "error": {
+                        "code": "bad_gateway",
+                        "message": f"El servicio '{destino.nombre}' no respondió.",
+                    }
+                }
+            ).encode()
+            return RespuestaProxeada(
+                status_code=502,
+                headers={"content-type": "application/json"},
+                body=body,
             )
 
         resp_headers = {
