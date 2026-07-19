@@ -7,6 +7,7 @@ Reverse proxy / punto de entrada único para el móvil. Reenvía hacia:
 | `/api/v1/proveedores/*` | Proveedores (Go) | `X-Api-Key` (el que Proveedores YA exige) |
 | `/api/v1/pagos-ms/*` | Pagos (Conekta/PayPal) | `X-Gateway-Key` |
 | `/api/v1/2fa/*` | 2FA | `X-Gateway-Key` |
+| `/api/v1/extracciones/*` | Extracciones / motor de IA | `X-Api-Key` (el que Extracciones YA exige) |
 | todo lo demás (`/api/v1/*`) | API principal | `X-Gateway-Key` |
 
 No reimplementa JWT ni RBAC — cada downstream sigue validando su propia

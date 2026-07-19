@@ -37,7 +37,13 @@ class Settings(BaseSettings):
     dosfa_base_url: str = ""
     dosfa_gateway_key: str = ""
 
-    # Timeout único para las 4 llamadas salientes.
+    # --- Downstream: Extracciones / motor de IA (audio -> JSON estructurado) ---
+    # Ya exige X-Api-Key (MICROSERVICE_API_KEY) — igual que Proveedores, no un
+    # X-Gateway-Key nuevo. Ver EXTRACTIONS_API_KEY en la API principal.
+    extracciones_base_url: str = ""
+    extracciones_gateway_key: str = ""
+
+    # Timeout único para las 5 llamadas salientes.
     proxy_timeout_seconds: int = 20
 
     @property

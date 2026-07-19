@@ -16,6 +16,12 @@ Mapeo verificado contra las rutas REALES de cada servicio (no supuestas):
     "/2fa/verify". Por eso acá se quita solo "/api/v1" (no "/api/v1/2fa"),
     para no perder el "/2fa" que 2FA espera recibir.
 
+  - Extracciones (motor de IA, audio -> JSON estructurado): rutas internas
+    "/extractions/...", sin prefijo de versión. Se le quita literalmente
+    "/api/v1/extracciones" del path — sin choque con nada de la API
+    principal (su callback de ML entra por "/api/v1/ml/callback", distinto).
+    Ya exige X-Api-Key (MICROSERVICE_API_KEY), igual que Proveedores.
+
   - Todo lo demás → API principal, sin reescribir el path (sus rutas ya
     viven bajo /api/v1/... y el gateway lo respeta tal cual).
 """
@@ -51,6 +57,17 @@ _DOSFA = DestinoRuta(
     strip_prefix="/api/v1",
 )
 
+_EXTRACCIONES = DestinoRuta(
+    nombre="extracciones",
+    external_prefix="/api/v1/extracciones",
+    base_url=settings.extracciones_base_url,
+    gateway_key=settings.extracciones_gateway_key,
+    strip_prefix="/api/v1/extracciones",
+    # Mismo mecanismo que Proveedores: X-Api-Key (MICROSERVICE_API_KEY), no
+    # un X-Gateway-Key nuevo.
+    gateway_key_header="X-Api-Key",
+)
+
 _MAIN_API = DestinoRuta(
     nombre="main_api",
     external_prefix="",  # catch-all
@@ -61,7 +78,7 @@ _MAIN_API = DestinoRuta(
 
 # Orden importa: se evalúan de arriba hacia abajo, el primero que matchea
 # gana. _MAIN_API queda al final porque su prefix vacío matchea cualquier cosa.
-_RUTAS = [_PROVEEDORES, _PAGOS, _DOSFA, _MAIN_API]
+_RUTAS = [_PROVEEDORES, _PAGOS, _DOSFA, _EXTRACCIONES, _MAIN_API]
 
 
 class RoutingTableEstatica(RoutingTablePort):
