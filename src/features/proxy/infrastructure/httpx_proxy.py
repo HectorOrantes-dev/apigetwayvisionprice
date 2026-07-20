@@ -47,6 +47,12 @@ _HEADERS_EXCLUIDOS = {
     "keep-alive",
     "transfer-encoding",
     "upgrade",
+    # httpx ya descomprime el body al leer resp.content — si reenviamos este
+    # header tal cual, le mentimos al cliente ("esto viene gzip") sobre bytes
+    # que en realidad ya están sin comprimir. Con respuestas chicas no se
+    # nota (no se comprimen), pero cualquier respuesta grande que SÍ se
+    # comprima en el camino llega con el body vacío/corrupto del otro lado.
+    "content-encoding",
 }
 
 
